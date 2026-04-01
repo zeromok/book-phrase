@@ -6,10 +6,13 @@ import com.bookphrase.domain.phrase.entity.Phrase;
 import com.bookphrase.domain.phrase.repository.PhraseRepository;
 import com.bookphrase.domain.tag.entity.Tag;
 import com.bookphrase.domain.tag.repository.TagRepository;
+import com.bookphrase.domain.user.entity.User;
+import com.bookphrase.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +24,15 @@ public class DataInitializer implements ApplicationRunner {
     private final TagRepository tagRepository;
     private final BookRepository bookRepository;
     private final PhraseRepository phraseRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        // 항상 실행: 어드민 계정 보장
+        ensureAdminExists();
+
         // 이미 데이터가 있으면 스킵
         if (tagRepository.count() > 0) {
             log.info("[DataInitializer] 초기 데이터 이미 존재. 스킵.");
@@ -83,6 +91,18 @@ public class DataInitializer implements ApplicationRunner {
         createPhrase("시스템이 목표보다 중요하다.", book3, tagGrow, tagMotivate);
 
         log.info("[DataInitializer] 태그 {}개, 책 3개, 문구 9개 삽입 완료", tagRepository.count());
+    }
+
+    private void ensureAdminExists() {
+        if (!userRepository.existsByEmail("admin@bookphrase.com")) {
+            userRepository.save(User.builder()
+                    .email("admin@bookphrase.com")
+                    .password(passwordEncoder.encode("Admin1234!"))
+                    .nickname("관리자")
+                    .role("ADMIN")
+                    .build());
+            log.info("[DataInitializer] 어드민 계정 생성 완료");
+        }
     }
 
     private Tag save(Tag tag) {
