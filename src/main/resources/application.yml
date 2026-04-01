@@ -22,6 +22,10 @@ jwt:
   expiration: ${JWT_EXPIRATION:86400000}
   refresh-expiration: 604800000
 
+aladin:
+  ttb:
+    key: ${ALADIN_TTB_KEY:your-aladin-ttb-key}
+
 logging:
   level:
     com.bookphrase: DEBUG
