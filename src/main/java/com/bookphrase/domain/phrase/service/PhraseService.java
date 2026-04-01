@@ -27,20 +27,34 @@ public class PhraseService {
     private final UserBookmarkRepository userBookmarkRepository;
     private final UserRepository userRepository;
 
-    // 태그 기반 카드 피드 조회
-    public List<PhraseFeedResponse> getFeed(List<Long> tagIds, Long userId) {
-        List<Phrase> phrases = phraseRepository
-                .findFeedByTagsExcludingHistory(tagIds, userId, FEED_SIZE);
+    // 태그 기반 카드 피드 조회 (tagId 단수, userId nullable)
+    public List<PhraseFeedResponse> getFeed(Long tagId, Long userId) {
+        List<Phrase> phrases;
 
-        // 히스토리 제외 후 부족하면 전체에서 보충
-        if (phrases.size() < FEED_SIZE) {
-            phrases = phraseRepository.findFeedByTagsAll(tagIds, FEED_SIZE);
+        if (tagId != null && userId != null) {
+            // 특정 태그 + 히스토리 제외
+            phrases = phraseRepository.findFeedByTagsExcludingHistory(List.of(tagId), userId, FEED_SIZE);
+            if (phrases.size() < FEED_SIZE) {
+                phrases = phraseRepository.findFeedByTagsAll(List.of(tagId), FEED_SIZE);
+            }
+        } else if (tagId != null) {
+            // 특정 태그, 비로그인
+            phrases = phraseRepository.findFeedByTagsAll(List.of(tagId), FEED_SIZE);
+        } else if (userId != null) {
+            // 전체 태그 + 히스토리 제외
+            phrases = phraseRepository.findFeedExcludingHistory(userId, FEED_SIZE);
+            if (phrases.size() < FEED_SIZE) {
+                phrases = phraseRepository.findFeedAll(FEED_SIZE);
+            }
+        } else {
+            // 전체 태그, 비로그인
+            phrases = phraseRepository.findFeedAll(FEED_SIZE);
         }
 
         return phrases.stream()
                 .map(p -> PhraseFeedResponse.of(
                         p,
-                        userBookmarkRepository.existsByUserIdAndPhraseId(userId, p.getId())
+                        userId != null && userBookmarkRepository.existsByUserIdAndPhraseId(userId, p.getId())
                 ))
                 .toList();
     }
@@ -55,7 +69,6 @@ public class PhraseService {
     // 카드 조회 기록 저장
     @Transactional
     public void recordView(Long phraseId, Long userId) {
-        // 이미 본 카드도 히스토리에 계속 쌓음 (추후 열람 빈도 분석용)
         User user = userRepository.getReferenceById(userId);
         Phrase phrase = phraseRepository.getReferenceById(phraseId);
         userHistoryRepository.save(UserHistory.builder()

@@ -21,22 +21,22 @@ public class PhraseController {
 
     private final PhraseService phraseService;
 
-    @Operation(summary = "카드 피드 조회", description = "선택한 태그 기반으로 문구 카드 10장 반환. 이미 본 카드 제외.")
+    @Operation(summary = "카드 피드 조회", description = "선택한 태그 기반으로 문구 카드 10장 반환. 로그인 시 이미 본 카드 제외.")
     @GetMapping("/feed")
     public ResponseEntity<List<PhraseFeedResponse>> getFeed(
-            @RequestParam List<Long> tagIds,
+            @RequestParam(required = false) Long tagId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = Long.parseLong(userDetails.getUsername());
-        return ResponseEntity.ok(phraseService.getFeed(tagIds, userId));
+        Long userId = userDetails != null ? Long.parseLong(userDetails.getUsername()) : null;
+        return ResponseEntity.ok(phraseService.getFeed(tagId, userId));
     }
 
-    @Operation(summary = "카드 탭 → 책 공개 (Reveal)", description = "카드 탭 시 책 정보를 서버에서 응답. 피드 응답에는 책 정보 없음.")
+    @Operation(summary = "카드 탭 → 책 공개 (Reveal)", description = "카드 탭 시 책 정보를 서버에서 응답.")
     @GetMapping("/{id}/reveal")
     public ResponseEntity<PhraseRevealResponse> reveal(@PathVariable Long id) {
         return ResponseEntity.ok(phraseService.reveal(id));
     }
 
-    @Operation(summary = "카드 조회 기록", description = "스와이프 시 호출. UserHistory에 기록되어 이후 피드에서 제외됨.")
+    @Operation(summary = "카드 조회 기록", description = "카드 조회 시 호출. UserHistory에 기록되어 이후 피드에서 제외됨.")
     @PostMapping("/{id}/view")
     public ResponseEntity<Void> recordView(
             @PathVariable Long id,

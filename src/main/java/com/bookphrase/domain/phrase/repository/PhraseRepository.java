@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface PhraseRepository extends JpaRepository<Phrase, Long> {
 
-    // 태그 기반 피드 조회: 이미 본 것 제외, 랜덤 10개
+    // 특정 태그 + 히스토리 제외
     @Query(value = """
             SELECT DISTINCT p.* FROM phrases p
             JOIN phrase_tags pt ON p.id = pt.phrase_id
@@ -26,7 +26,7 @@ public interface PhraseRepository extends JpaRepository<Phrase, Long> {
             @Param("limit") int limit
     );
 
-    // 히스토리 부족 시 fallback: 오래된 것부터 다시 포함
+    // 특정 태그 + 히스토리 무시 (fallback)
     @Query(value = """
             SELECT DISTINCT p.* FROM phrases p
             JOIN phrase_tags pt ON p.id = pt.phrase_id
@@ -38,4 +38,22 @@ public interface PhraseRepository extends JpaRepository<Phrase, Long> {
             @Param("tagIds") List<Long> tagIds,
             @Param("limit") int limit
     );
+
+    // 전체 태그 + 히스토리 제외
+    @Query(value = """
+            SELECT p.* FROM phrases p
+            WHERE p.id NOT IN (
+                SELECT phrase_id FROM user_histories WHERE user_id = :userId
+            )
+            ORDER BY RAND()
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Phrase> findFeedExcludingHistory(
+            @Param("userId") Long userId,
+            @Param("limit") int limit
+    );
+
+    // 전체 태그 + 히스토리 무시 (fallback / 비로그인)
+    @Query(value = "SELECT p.* FROM phrases p ORDER BY RAND() LIMIT :limit", nativeQuery = true)
+    List<Phrase> findFeedAll(@Param("limit") int limit);
 }
