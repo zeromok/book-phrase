@@ -25,6 +25,9 @@ public class User {
     @Column(nullable = false, length = 50)
     private String nickname;
 
+    @Column(nullable = false, length = 20, columnDefinition = "VARCHAR(20) NOT NULL DEFAULT 'USER'")
+    private String role;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -34,9 +37,10 @@ public class User {
     }
 
     @Builder
-    public User(String email, String password, String nickname) {
+    public User(String email, String password, String nickname, String role) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
+        this.role = role != null ? role : "USER";
     }
 }
