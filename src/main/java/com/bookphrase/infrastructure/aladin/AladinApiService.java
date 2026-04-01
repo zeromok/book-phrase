@@ -14,7 +14,7 @@ import java.util.List;
 @Service
 public class AladinApiService {
 
-    private static final String BASE_URL = "https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx";
+    private static final String BASE_URL = "http://www.aladin.co.kr/ttb/api/ItemLookUp.aspx";
 
     @Value("${aladin.ttb.key}")
     private String ttbKey;
