@@ -45,8 +45,8 @@ public class DataInitializer implements ApplicationRunner {
                 .author("김요한")
                 .isbn("9791190382070")
                 .coverImageUrl("https://image.aladin.co.kr/product/29520/97/cover/k472838022_1.jpg")
-                .aladdinUrl("https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=295209741")
-                .yes24Url("https://www.yes24.com/Product/Goods/108392070")
+                .aladdinUrl("https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=368643292")
+                .yes24Url("https://www.yes24.com/Product/Goods/149869906")
                 .build());
 
         // 책 2: 미움받을 용기
@@ -55,8 +55,8 @@ public class DataInitializer implements ApplicationRunner {
                 .author("기시미 이치로, 고가 후미타케")
                 .isbn("9788996991342")
                 .coverImageUrl("https://image.aladin.co.kr/product/4011/21/cover/8996991341_1.jpg")
-                .aladdinUrl("https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=40112112")
-                .yes24Url("https://www.yes24.com/Product/Goods/17752271")
+                .aladdinUrl("https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=48463031")
+                .yes24Url("https://www.yes24.com/Product/Goods/116599423")
                 .build());
 
         // 책 3: 아주 작은 습관의 힘
@@ -65,8 +65,8 @@ public class DataInitializer implements ApplicationRunner {
                 .author("제임스 클리어")
                 .isbn("9791162242965")
                 .coverImageUrl("https://image.aladin.co.kr/product/19101/11/cover/k012634616_1.jpg")
-                .aladdinUrl("https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=191011528")
-                .yes24Url("https://www.yes24.com/Product/Goods/73382019")
+                .aladdinUrl("https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=379447436")
+                .yes24Url("https://www.yes24.com/Product/Goods/69655504")
                 .build());
 
         // 문구 등록
