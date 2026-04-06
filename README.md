@@ -5,7 +5,8 @@
 > 책 제목과 저자 없이, 감성 문구만 보고 책을 발견합니다.  
 > 카드를 탭하면 책이 공개되는 Reveal 구조로 서비스의 본질을 기술적으로 보장합니다.
 
-🌐 **서비스 주소**: [www.todayogu.com](https://www.todayogu.com)
+🌐 **서비스 주소**: [www.todayogu.com](https://www.todayogu.com)  
+🔗 **프론트엔드 레포**: [zeromok/book-phrase-frontend](https://github.com/zeromok/book-phrase-frontend)
 
 ---
 
@@ -64,8 +65,6 @@
 
 ## API 명세
 
-Swagger UI: `https://book-phrase-production.up.railway.app/swagger-ui/index.html`
-
 | Method | URL | 설명 | 인증 |
 |--------|-----|------|------|
 | GET | `/api/v1/tags` | 태그 목록 조회 | ❌ |
@@ -77,7 +76,7 @@ Swagger UI: `https://book-phrase-production.up.railway.app/swagger-ui/index.html
 | POST | `/api/v1/admin/phrases` | 문구 등록 | ✅ ADMIN |
 | DELETE | `/api/v1/admin/phrases/{id}` | 문구 삭제 | ✅ ADMIN |
 
-> Admin API는 HTTP Basic Auth 사용. 환경변수 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 설정 필요.
+> Admin API는 HTTP Basic Auth 사용. 운영 환경에서는 반드시 강한 크리덴셜을 환경변수로 설정하세요.
 
 ---
 
@@ -92,17 +91,19 @@ Phrase ──── Book
 
 ## 환경 변수
 
-| 변수명 | 설명 | 기본값 |
-|--------|------|--------|
-| `SPRING_DATASOURCE_URL` | MySQL 접속 URL | `jdbc:mysql://localhost:3306/bookphrase` |
-| `SPRING_DATASOURCE_USERNAME` | DB 사용자명 | `root` |
-| `SPRING_DATASOURCE_PASSWORD` | DB 비밀번호 | (없음) |
-| `SPRING_JPA_HIBERNATE_DDL_AUTO` | DDL 전략 | `update` |
-| `ADMIN_USERNAME` | 어드민 계정 | `admin` |
-| `ADMIN_PASSWORD` | 어드민 비밀번호 | `admin1234` |
-| `ANTHROPIC_API_KEY` | Claude API 키 | (필수) |
-| `ALADIN_TTB_KEY` | 알라딘 TTB API 키 | (필수) |
-| `PORT` | 서버 포트 | `8080` |
+로컬 실행 시 아래 환경변수를 설정해야 합니다. **실제 값은 코드에 직접 작성하지 마세요.**
+
+| 변수명 | 설명 |
+|--------|------|
+| `SPRING_DATASOURCE_URL` | MySQL 접속 URL |
+| `SPRING_DATASOURCE_USERNAME` | DB 사용자명 |
+| `SPRING_DATASOURCE_PASSWORD` | DB 비밀번호 |
+| `SPRING_JPA_HIBERNATE_DDL_AUTO` | DDL 전략 (`update` 권장, 운영에서 `none`) |
+| `ADMIN_USERNAME` | 어드민 계정 (운영 환경 필수 변경) |
+| `ADMIN_PASSWORD` | 어드민 비밀번호 (운영 환경 필수 변경) |
+| `ANTHROPIC_API_KEY` | Claude API 키 |
+| `ALADIN_TTB_KEY` | 알라딘 TTB API 키 |
+| `PORT` | 서버 포트 (기본 8080) |
 
 ---
 
@@ -113,6 +114,8 @@ Phrase ──── Book
 mysql -u root -e "CREATE DATABASE bookphrase CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 # 2. 환경 변수 설정 (application-local.yml 또는 IDE 환경변수)
+SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/bookphrase
+SPRING_DATASOURCE_USERNAME=root
 SPRING_DATASOURCE_PASSWORD=your_password
 ANTHROPIC_API_KEY=your_key
 ALADIN_TTB_KEY=your_key
