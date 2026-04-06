@@ -1,5 +1,6 @@
 package com.bookphrase.infrastructure.claude;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,10 +15,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Anthropic Claude API를 호출해 책 제목+저자 → 감성 문구 + 태그 2개를 생성합니다.
+ * Anthropic Claude API를 호출해 두 가지를 동시에 처리합니다.
  *
- * 응답 형식 (Claude에게 강제):
- * {"phrase": "감성적인 한국어 문구", "tags": ["태그1", "태그2"]}
+ * 1. 적합성 판단: 수험서·문제집·유아그림책 등 서비스 성격과 맞지 않는 책 필터링
+ * 2. 문구 + 태그 생성: 적합한 책에 한해 감성 문구 1개 + 어울리는 태그 2개 생성
+ *
+ * 응답 형식:
+ *   적합 → {"suitable": true,  "phrase": "...", "tags": ["...", "..."]}
+ *   부적합 → {"suitable": false, "reason": "수험서라 서비스 성격과 맞지 않음"}
  */
 @Slf4j
 @Service
@@ -43,14 +48,17 @@ public class ClaudeApiService {
     }
 
     /**
-     * 책 정보를 받아 감성 문구 1개 + 어울리는 태그 2개를 생성합니다.
+     * 책 정보를 받아 적합성 판단 + 감성 문구 + 태그를 한 번의 Claude 호출로 처리합니다.
      *
      * @param title         책 제목
      * @param author        저자
+     * @param categoryName  알라딘 카테고리 경로 (예: "국내도서>자기계발>성공/처세술")
      * @param availableTags DB에 존재하는 태그 이름 목록
-     * @return ClaudeResult(phrase, tags)
+     * @return ClaudeResult (suitable=false면 phrase/tags는 null)
      */
-    public ClaudeResult generatePhraseAndTags(String title, String author, List<String> availableTags) {
+    public ClaudeResult evaluateAndGenerate(
+            String title, String author, String categoryName, List<String> availableTags) {
+
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("ANTHROPIC_API_KEY가 설정되지 않았습니다.");
         }
@@ -60,7 +68,7 @@ public class ClaudeApiService {
         headers.set("x-api-key", apiKey);
         headers.set("anthropic-version", ANTHROPIC_VERSION);
 
-        String prompt = buildPrompt(title, author, availableTags);
+        String prompt = buildPrompt(title, author, categoryName, availableTags);
 
         Map<String, Object> requestBody = Map.of(
                 "model", MODEL,
@@ -82,10 +90,16 @@ public class ClaudeApiService {
             String text = root.path("content").get(0).path("text").asText().trim();
             log.info("[ClaudeApiService] Claude 텍스트: {}", text);
 
-            // JSON 파싱 (Claude가 가끔 ```json ... ``` 코드블록으로 감쌀 수 있음)
+            // JSON 파싱 (Claude가 ```json ... ``` 코드블록으로 감쌀 수 있어 방어 처리)
             String json = extractJson(text);
             ClaudeResult result = objectMapper.readValue(json, ClaudeResult.class);
-            log.info("[ClaudeApiService] 생성 완료 - 문구: [{}], 태그: {}", result.phrase(), result.tags());
+
+            if (result.suitable()) {
+                log.info("[ClaudeApiService] ✅ 적합 - 문구: [{}], 태그: {}", result.phrase(), result.tags());
+            } else {
+                log.info("[ClaudeApiService] ❌ 부적합 - 사유: {}", result.reason());
+            }
+
             return result;
 
         } catch (Exception e) {
@@ -109,26 +123,64 @@ public class ClaudeApiService {
         return text;
     }
 
-    private String buildPrompt(String title, String author, List<String> availableTags) {
+    private String buildPrompt(
+            String title, String author, String categoryName, List<String> availableTags) {
+
+        String category = (categoryName != null && !categoryName.isBlank())
+                ? categoryName : "알 수 없음";
+
         return String.format("""
-                아래 책을 읽고 싶게 만드는 감성적인 한국어 문구 1개와,
-                제공된 태그 중 이 책과 가장 어울리는 것 2개를 선택해주세요.
+                당신은 감성적인 도서 큐레이션 서비스의 콘텐츠 편집자입니다.
+                이 서비스는 "문구로 책을 발견하는" 감성 큐레이션으로, \
+                독자의 현재 감정·상황과 공명하는 책을 추천합니다.
                 
-                책 제목: %s
+                아래 책이 이 서비스에 적합한지 먼저 판단하고,
+                적합하다면 감성적인 한국어 문구와 태그를 생성해주세요.
+                
+                ─ 책 정보 ─
+                제목: %s
                 저자: %s
+                카테고리: %s
                 
-                사용 가능한 태그: %s
+                ─ 부적합한 책의 예시 ─
+                수험서, 문제집, 자격증 교재, 공무원 시험, 공인중개사
+                유아/어린이 그림책, 학습만화
+                요리 레시피북, 여행 가이드북, 지도책
+                전문 기술서 (프로그래밍, 의학, 법률, 회계 등)
                 
-                규칙:
-                - 문구는 20~50자 사이의 짧고 감성적인 한국어 문장
-                - 태그는 반드시 위의 목록에서만 선택
-                - 반드시 JSON 형식으로만 응답 (다른 텍스트 없이)
+                ─ 적합한 책의 예시 ─
+                에세이, 자기계발, 소설, 인문학, 철학, 심리학, 사회학
+                독자에게 감동·위로·자극·성찰을 줄 수 있는 책
                 
-                응답 형식:
-                {"phrase": "감성적인 문구", "tags": ["태그1", "태그2"]}
+                ─ 사용 가능한 태그 ─
+                %s
+                
+                반드시 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+                
+                적합한 경우:
+                {"suitable": true, "phrase": "20~50자의 감성적인 한국어 문구", "tags": ["태그1", "태그2"]}
+                
+                부적합한 경우:
+                {"suitable": false, "reason": "부적합 사유를 한 문장으로"}
                 """,
-                title, author, String.join(", ", availableTags));
+                title, author, category, String.join(", ", availableTags));
     }
 
-    public record ClaudeResult(String phrase, List<String> tags) {}
+    /**
+     * Claude API 응답 결과
+     *
+     * suitable=true  → phrase, tags 에 값이 있음
+     * suitable=false → reason 에 부적합 사유, phrase/tags 는 null
+     */
+    public record ClaudeResult(
+            boolean suitable,
+            String reason,
+            String phrase,
+            List<String> tags
+    ) {
+        // Jackson deserialize용 기본 생성자 대신 record 사용 (suitable만 있으면 됨)
+        public boolean isRejected() {
+            return !suitable;
+        }
+    }
 }
