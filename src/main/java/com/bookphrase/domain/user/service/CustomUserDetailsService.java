@@ -22,10 +22,12 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findById(Long.parseLong(userId))
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: " + userId));
 
+        String role = user.getRole() != null ? user.getRole() : "USER";
+
         return new org.springframework.security.core.userdetails.User(
                 String.valueOf(user.getId()),
                 user.getPassword(),
-                List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole()))
+                List.of(new SimpleGrantedAuthority("ROLE_" + role))
         );
     }
 }
