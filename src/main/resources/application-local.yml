@@ -1,0 +1,16 @@
+# 로컬 개발 환경 전용 설정
+# application.yml 의 기본값을 오버라이드합니다.
+# Railway(프로덕션)에서는 SPRING_PROFILES_ACTIVE=prod 로 이 파일이 로드되지 않습니다.
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+
+logging:
+  level:
+    com.bookphrase: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.springframework.security: DEBUG
