@@ -167,6 +167,7 @@ public class AdminController {
                 "duplicate",      result.duplicate(),
                 "keywordFiltered",result.keywordFiltered(),
                 "claudeFiltered", result.claudeFiltered(),
+                "error",          result.error(),
                 "total",          result.total(),
                 "queryType",      queryType != null ? queryType : "BESTSELLER",
                 "categoryId",     categoryId != null ? categoryId : "전체",

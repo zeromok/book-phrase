@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * AI 자동 콘텐츠 파이프라인 서비스
@@ -78,24 +79,32 @@ public class ContentPipelineService {
         List<String> tagNames = allTags.stream().map(Tag::getName).toList();
         log.info("[ContentPipeline] 사용 가능한 태그: {} | 처리 대상: {}권", tagNames, books.size());
 
-        int saved = 0, duplicate = 0, keywordFiltered = 0, claudeFiltered = 0;
+        int saved = 0, duplicate = 0, keywordFiltered = 0, claudeFiltered = 0, error = 0;
+        AtomicInteger claudeCalls = new AtomicInteger(0);
 
         for (AladinApiService.AladinBookInfo bookInfo : books) {
             try {
-                switch (processBook(bookInfo, allTags, tagNames)) {
+                switch (processBook(bookInfo, allTags, tagNames, claudeCalls)) {
                     case SAVED          -> saved++;
                     case DUPLICATE      -> duplicate++;
                     case KEYWORD_FILTER -> keywordFiltered++;
                     case CLAUDE_FILTER  -> claudeFiltered++;
                 }
             } catch (Exception e) {
+                error++;
                 log.error("[ContentPipeline] 처리 중 예외 - [{}]: {}", bookInfo.title(), e.getMessage());
             }
         }
 
-        PipelineResult result = new PipelineResult(saved, duplicate, keywordFiltered, claudeFiltered);
-        log.info("[ContentPipeline] ===== 완료 - 저장: {}개 | 중복: {}개 | 키워드필터: {}개 | Claude필터: {}개 =====",
-                saved, duplicate, keywordFiltered, claudeFiltered);
+        PipelineResult result = new PipelineResult(saved, duplicate, keywordFiltered, claudeFiltered, error);
+        log.info("[ContentPipeline] ===== 완료 - 저장: {}개 | 중복: {}개 | 키워드필터: {}개 | Claude필터: {}개 | 예외: {}개 | Claude호출: {}회 =====",
+                saved, duplicate, keywordFiltered, claudeFiltered, error, claudeCalls.get());
+
+        // 비용 가시성: 일일 Claude 호출이 기준치를 초과하면 경고
+        if (claudeCalls.get() >= 15) {
+            log.warn("[ContentPipeline] ⚠️ Claude 호출 {}회 — 비용 점검 권장 (일일 권장: 15회 이하)", claudeCalls.get());
+        }
+
         return result;
     }
 
@@ -106,7 +115,8 @@ public class ContentPipelineService {
     private BookResult processBook(
             AladinApiService.AladinBookInfo bookInfo,
             List<Tag> allTags,
-            List<String> tagNames) throws InterruptedException {
+            List<String> tagNames,
+            AtomicInteger claudeCalls) throws InterruptedException {
 
         // ISBN 없음
         if (bookInfo.isbn13() == null || bookInfo.isbn13().isBlank()) {
@@ -129,6 +139,7 @@ public class ContentPipelineService {
         log.info("[ContentPipeline] Claude 평가: [{}] | 카테고리: {}", bookInfo.title(), bookInfo.categoryName());
         Thread.sleep(1_000); // API Rate limit 방지
 
+        claudeCalls.incrementAndGet();
         ClaudeApiService.ClaudeResult claudeResult = claudeApiService.evaluateAndGenerate(
                 bookInfo.title(), bookInfo.author(), bookInfo.categoryName(), tagNames);
 
@@ -165,12 +176,12 @@ public class ContentPipelineService {
     }
 
     // ── 결과 DTO ─────────────────────────────────────────────────────────
-    public record PipelineResult(int saved, int duplicate, int keywordFiltered, int claudeFiltered) {
+    public record PipelineResult(int saved, int duplicate, int keywordFiltered, int claudeFiltered, int error) {
         public static PipelineResult empty() {
-            return new PipelineResult(0, 0, 0, 0);
+            return new PipelineResult(0, 0, 0, 0, 0);
         }
         public int total() {
-            return saved + duplicate + keywordFiltered + claudeFiltered;
+            return saved + duplicate + keywordFiltered + claudeFiltered + error;
         }
     }
 }

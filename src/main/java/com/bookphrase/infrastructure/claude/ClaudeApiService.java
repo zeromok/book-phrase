@@ -1,6 +1,5 @@
 package com.bookphrase.infrastructure.claude;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
@@ -23,6 +23,10 @@ import java.util.Map;
  * 응답 형식:
  *   적합 → {"suitable": true,  "phrase": "...", "tags": ["...", "..."]}
  *   부적합 → {"suitable": false, "reason": "수험서라 서비스 성격과 맞지 않음"}
+ *
+ * [재시도 정책]
+ *   429 Rate Limit 응답 시 최대 3회 지수 백오프 재시도 (2s → 5s → 10s)
+ *   그 외 오류는 즉시 RuntimeException으로 상위에 전파
  */
 @Slf4j
 @Service
@@ -31,6 +35,9 @@ public class ClaudeApiService {
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
     private static final String MODEL = "claude-haiku-4-5-20251001";
+
+    private static final int MAX_RETRIES = 3;
+    private static final long[] RETRY_DELAYS_MS = {2_000L, 5_000L, 10_000L};
 
     @Value("${anthropic.api.key:}")
     private String apiKey;
@@ -49,6 +56,7 @@ public class ClaudeApiService {
 
     /**
      * 책 정보를 받아 적합성 판단 + 감성 문구 + 태그를 한 번의 Claude 호출로 처리합니다.
+     * 429 Rate Limit 발생 시 최대 {@value MAX_RETRIES}회 재시도합니다.
      *
      * @param title         책 제목
      * @param author        저자
@@ -78,34 +86,57 @@ public class ClaudeApiService {
                 )
         );
 
-        try {
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(CLAUDE_API_URL, request, String.class);
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
 
-            String responseBody = response.getBody();
-            log.debug("[ClaudeApiService] 원본 응답: {}", responseBody);
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                ResponseEntity<String> response = restTemplate.postForEntity(CLAUDE_API_URL, request, String.class);
 
-            // content[0].text 추출
-            JsonNode root = objectMapper.readTree(responseBody);
-            String text = root.path("content").get(0).path("text").asText().trim();
-            log.info("[ClaudeApiService] Claude 텍스트: {}", text);
+                String responseBody = response.getBody();
+                log.debug("[ClaudeApiService] 원본 응답: {}", responseBody);
 
-            // JSON 파싱 (Claude가 ```json ... ``` 코드블록으로 감쌀 수 있어 방어 처리)
-            String json = extractJson(text);
-            ClaudeResult result = objectMapper.readValue(json, ClaudeResult.class);
+                // content[0].text 추출
+                JsonNode root = objectMapper.readTree(responseBody);
+                String text = root.path("content").get(0).path("text").asText().trim();
+                log.info("[ClaudeApiService] Claude 텍스트: {}", text);
 
-            if (result.suitable()) {
-                log.info("[ClaudeApiService] ✅ 적합 - 문구: [{}], 태그: {}", result.phrase(), result.tags());
-            } else {
-                log.info("[ClaudeApiService] ❌ 부적합 - 사유: {}", result.reason());
+                // JSON 파싱 (Claude가 ```json ... ``` 코드블록으로 감쌀 수 있어 방어 처리)
+                String json = extractJson(text);
+                ClaudeResult result = objectMapper.readValue(json, ClaudeResult.class);
+
+                if (result.suitable()) {
+                    log.info("[ClaudeApiService] ✅ 적합 - 문구: [{}], 태그: {}", result.phrase(), result.tags());
+                } else {
+                    log.info("[ClaudeApiService] ❌ 부적합 - 사유: {}", result.reason());
+                }
+
+                return result;
+
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429 && attempt < MAX_RETRIES - 1) {
+                    long delay = RETRY_DELAYS_MS[attempt];
+                    log.warn("[ClaudeApiService] ⚠️ 429 Rate Limit - {}ms 후 재시도 ({}/{}) [{}]",
+                            delay, attempt + 1, MAX_RETRIES - 1, title);
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Claude API 재시도 중 인터럽트 발생", ie);
+                    }
+                } else {
+                    log.error("[ClaudeApiService] HTTP 오류 {}: {}", e.getStatusCode().value(), e.getMessage());
+                    throw new RuntimeException("Claude API 호출 실패 (HTTP " + e.getStatusCode().value() + "): " + e.getMessage());
+                }
+
+            } catch (Exception e) {
+                log.error("[ClaudeApiService] API 호출 실패: {}", e.getMessage(), e);
+                throw new RuntimeException("Claude API 호출 실패: " + e.getMessage());
             }
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("[ClaudeApiService] API 호출 실패: {}", e.getMessage(), e);
-            throw new RuntimeException("Claude API 호출 실패: " + e.getMessage());
         }
+
+        // MAX_RETRIES 모두 소진 (429만 여기 도달 가능)
+        log.error("[ClaudeApiService] 429 Rate Limit - 최대 재시도({}) 초과 [{}]", MAX_RETRIES, title);
+        throw new RuntimeException("Claude API 429 Rate Limit - 최대 재시도 초과");
     }
 
     /**
@@ -178,7 +209,6 @@ public class ClaudeApiService {
             String phrase,
             List<String> tags
     ) {
-        // Jackson deserialize용 기본 생성자 대신 record 사용 (suitable만 있으면 됨)
         public boolean isRejected() {
             return !suitable;
         }
