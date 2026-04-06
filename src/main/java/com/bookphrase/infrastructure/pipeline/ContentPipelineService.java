@@ -20,10 +20,14 @@ import java.util.List;
  *
  * 흐름:
  * 1. 알라딘 베스트셀러 N권 조회
- * 2. ISBN 중복 체크 → 신규 책만 처리
- * 3. Claude API → 적합성 판단 + 감성 문구 + 태그 생성 (1회 호출)
- *    - suitable=false (수험서, 문제집, 유아그림책 등) → Book 저장 없이 스킵
+ * 2. ISBN 중복 체크 → 이미 있으면 스킵
+ * 3. [1차 필터] BookSuitabilityFilter 키워드 체크 → 부적합이면 스킵 (Claude 호출 없음)
+ * 4. [2차 필터] Claude API → 적합성 판단 + 감성 문구 + 태그 생성 (1회 호출)
+ *    - suitable=false → Book 저장 없이 스킵
  *    - suitable=true  → Book + Phrase + Tag 저장 → 피드 노출
+ *
+ * 1차 필터(키워드)가 2차 필터(Claude) 앞에 위치함으로써
+ * 명백한 수험서/문제집은 API 비용 없이 걸러냅니다.
  */
 @Slf4j
 @Service
@@ -32,6 +36,7 @@ public class ContentPipelineService {
 
     private final AladinApiService aladinApiService;
     private final ClaudeApiService claudeApiService;
+    private final BookSuitabilityFilter suitabilityFilter;
     private final BookRepository bookRepository;
     private final PhraseRepository phraseRepository;
     private final TagRepository tagRepository;
@@ -58,54 +63,70 @@ public class ContentPipelineService {
             return 0;
         }
 
-        int savedCount   = 0;
-        int skippedCount = 0;
+        int savedCount          = 0;
+        int duplicateCount      = 0;
+        int keywordFilterCount  = 0;
+        int claudeFilterCount   = 0;
 
         for (AladinApiService.AladinBookInfo bookInfo : bestsellers) {
             try {
-                int result = processBook(bookInfo, allTags, tagNames);
-                if (result > 0) savedCount++;
-                else skippedCount++;
+                Result result = processBook(bookInfo, allTags, tagNames);
+                switch (result) {
+                    case SAVED          -> savedCount++;
+                    case DUPLICATE      -> duplicateCount++;
+                    case KEYWORD_FILTER -> keywordFilterCount++;
+                    case CLAUDE_FILTER  -> claudeFilterCount++;
+                }
             } catch (Exception e) {
-                log.error("[ContentPipeline] 처리 실패 - 제목: [{}], 원인: {}",
+                log.error("[ContentPipeline] 처리 중 예외 - 제목: [{}], 원인: {}",
                         bookInfo.title(), e.getMessage());
             }
         }
 
-        log.info("[ContentPipeline] ===== 파이프라인 완료. 저장: {}개, 스킵: {}개 =====",
-                savedCount, skippedCount);
+        log.info("[ContentPipeline] ===== 파이프라인 완료 =====");
+        log.info("[ContentPipeline] 저장: {}개 | 중복 스킵: {}개 | 키워드 필터: {}개 | Claude 필터: {}개",
+                savedCount, duplicateCount, keywordFilterCount, claudeFilterCount);
         return savedCount;
+    }
+
+    private enum Result {
+        SAVED,          // 저장 완료
+        DUPLICATE,      // DB에 이미 존재
+        KEYWORD_FILTER, // 1차 키워드 필터로 탈락
+        CLAUDE_FILTER   // 2차 Claude 판단으로 탈락
     }
 
     /**
      * 책 한 권을 처리합니다.
-     *
-     * @return 1 = 저장 완료, 0 = 스킵 (중복 or 부적합)
      */
-    private int processBook(
+    private Result processBook(
             AladinApiService.AladinBookInfo bookInfo,
             List<Tag> allTags,
             List<String> tagNames) throws InterruptedException {
 
-        // ISBN 없는 책 스킵
+        // ── 사전 검사: ISBN ────────────────────────────────────────────────
         if (bookInfo.isbn13() == null || bookInfo.isbn13().isBlank()) {
             log.info("[ContentPipeline] ISBN 없음, 스킵: {}", bookInfo.title());
-            return 0;
+            return Result.KEYWORD_FILTER;
         }
 
-        // DB 중복 체크 (이미 등록된 책)
+        // ── 중복 체크 ──────────────────────────────────────────────────────
         if (bookRepository.existsByIsbn(bookInfo.isbn13())) {
-            log.info("[ContentPipeline] 이미 존재하는 책, 스킵: {} ({})",
-                    bookInfo.title(), bookInfo.isbn13());
-            return 0;
+            log.info("[ContentPipeline] 중복 스킵: {} ({})", bookInfo.title(), bookInfo.isbn13());
+            return Result.DUPLICATE;
         }
 
-        log.info("[ContentPipeline] 신규 책 평가 시작: {} | 카테고리: {}",
+        // ── 1차 필터: 키워드 블랙리스트 (Claude API 호출 없이 걸러냄) ──────
+        if (!suitabilityFilter.isSuitable(bookInfo.title())) {
+            // isSuitable() 내부에서 이미 로그 출력
+            return Result.KEYWORD_FILTER;
+        }
+
+        // ── 2차 필터: Claude 적합성 판단 + 문구/태그 생성 ─────────────────
+        log.info("[ContentPipeline] Claude 평가 시작: [{}] | 카테고리: {}",
                 bookInfo.title(), bookInfo.categoryName());
 
-        // Claude API 호출: 적합성 판단 + 문구/태그 생성 (1회)
-        // API 과부하 방지: 호출 전 1초 대기
-        Thread.sleep(1_000);
+        Thread.sleep(1_000); // API 과부하 방지
         ClaudeApiService.ClaudeResult result = claudeApiService.evaluateAndGenerate(
                 bookInfo.title(),
                 bookInfo.author(),
@@ -113,39 +134,34 @@ public class ContentPipelineService {
                 tagNames
         );
 
-        // 부적합 판정 → Book 자체를 저장하지 않음
         if (result.isRejected()) {
-            log.info("[ContentPipeline] ❌ 부적합 스킵 - [{}] 사유: {}",
+            log.info("[ContentPipeline] ❌ Claude 부적합 - [{}] 사유: {}",
                     bookInfo.title(), result.reason());
-            return 0;
+            return Result.CLAUDE_FILTER;
         }
 
-        // 적합 판정 → Book 저장
+        // ── 저장: 적합 판정된 책만 Book + Phrase + Tag 저장 ───────────────
         Book book = bookRepository.save(Book.builder()
                 .title(bookInfo.title())
                 .author(bookInfo.author())
                 .isbn(bookInfo.isbn13())
                 .coverImageUrl(bookInfo.cover())
                 .aladdinUrl(bookInfo.link())
-                // yes24Url은 ISBN→yes24 goodsId 매핑이 없어 생략
+                // yes24Url: ISBN→goodsId 매핑 불가로 생략 (관리자가 수동 추가 가능)
                 .build());
 
-        log.info("[ContentPipeline] Book 저장 완료: id={}", book.getId());
-
-        // Phrase 생성
         Phrase phrase = Phrase.builder()
                 .text(result.phrase())
                 .book(book)
                 .build();
 
-        // 태그 매핑 (Claude 제안 태그 이름 → Tag 엔티티 룩업)
-        for (String suggestedTagName : result.tags()) {
+        for (String tagName : result.tags()) {
             allTags.stream()
-                    .filter(t -> t.getName().equals(suggestedTagName))
+                    .filter(t -> t.getName().equals(tagName))
                     .findFirst()
                     .ifPresentOrElse(
                             phrase::addTag,
-                            () -> log.warn("[ContentPipeline] 알 수 없는 태그 이름: {}", suggestedTagName)
+                            () -> log.warn("[ContentPipeline] 알 수 없는 태그: {}", tagName)
                     );
         }
 
@@ -153,6 +169,6 @@ public class ContentPipelineService {
         log.info("[ContentPipeline] ✅ 저장 완료: [{}] → \"{}\"",
                 book.getTitle(), result.phrase());
 
-        return 1;
+        return Result.SAVED;
     }
 }
