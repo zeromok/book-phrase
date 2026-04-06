@@ -108,12 +108,22 @@ public class AladinApiService {
     // ── DTO ──────────────────────────────────────────────────────────────
     public record AladinResponse(List<AladinBookInfo> item) {}
 
+    /**
+     * 알라딘 API 응답 DTO
+     *
+     * categoryName 예시:
+     *   "국내도서>자기계발>성공/처세술"
+     *   "국내도서>소설/시/희곡>한국소설"
+     *   "국내도서>수험서/자격증>공무원 수험서"
+     *   "국내도서>유아>그림책"
+     */
     public record AladinBookInfo(
             String title,
             String author,
             String publisher,
             String isbn13,
             String cover,
-            String link
+            String link,
+            String categoryName  // 카테고리 경로 (적합성 판단에 활용)
     ) {}
 }
