@@ -21,11 +21,6 @@ server:
   port: ${PORT:8080}
   forward-headers-strategy: framework
 
-jwt:
-  secret: ${JWT_SECRET:bookphrase-secret-key-must-be-at-least-256-bits-long-for-security}
-  expiration: ${JWT_EXPIRATION:86400000}
-  refresh-expiration: 604800000
-
 aladin:
   ttb:
     key: ${ALADIN_TTB_KEY:your-aladin-ttb-key}
