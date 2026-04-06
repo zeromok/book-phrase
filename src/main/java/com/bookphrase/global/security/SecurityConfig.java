@@ -21,7 +21,8 @@ import java.util.List;
  *
  * 일반 API  → 인증 없이 누구나 접근 가능 (퍼블릭 서비스)
  * Admin API → HTTP Basic Auth (/api/v1/admin/**)
- *             환경변수: admin.username / admin.password (기본: admin / admin1234)
+ *             환경변수: ADMIN_USERNAME / ADMIN_PASSWORD
+ *             CORS: 허용 Origin 없음 (브라우저에서 직접 접근 불가, curl/Postman만 가능)
  */
 @Configuration
 @EnableWebSecurity
@@ -59,17 +60,28 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(
+        // 일반 API CORS — 프론트엔드 도메인만 허용
+        CorsConfiguration publicConfig = new CorsConfiguration();
+        publicConfig.setAllowedOrigins(List.of(
             "http://localhost:5173",
-            "https://book-phrase-frontend.vercel.app"
+            "https://book-phrase-frontend.vercel.app",
+            "https://todayogu.com",
+            "https://www.todayogu.com"
         ));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
+        publicConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        publicConfig.setAllowedHeaders(List.of("*"));
+        publicConfig.setAllowCredentials(true);
+
+        // Admin API CORS — 허용 Origin 없음 (브라우저 CORS 차단, curl/Postman은 여전히 가능)
+        // 실제 보호는 HTTP Basic Auth + 강한 비밀번호로 이루어짐
+        CorsConfiguration adminConfig = new CorsConfiguration();
+        adminConfig.setAllowedOrigins(List.of());
+        adminConfig.setAllowedMethods(List.of());
+        adminConfig.setAllowedHeaders(List.of());
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        source.registerCorsConfiguration("/api/v1/admin/**", adminConfig);
+        source.registerCorsConfiguration("/**", publicConfig);
         return source;
     }
 }
