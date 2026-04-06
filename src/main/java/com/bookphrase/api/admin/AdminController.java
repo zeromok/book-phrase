@@ -33,6 +33,8 @@ public class AdminController {
     private final PhraseRepository phraseRepository;
     private final ContentPipelineService contentPipelineService;
 
+    // ── 책 등록 ──────────────────────────────────────────────────────────
+
     @Operation(summary = "ISBN으로 책 등록", description = "알라딘 API를 통해 책 정보를 자동으로 가져와 등록합니다. yes24Url은 선택 입력.")
     @PostMapping("/books")
     public ResponseEntity<AdminBookResponse> addBook(@RequestBody @Valid AdminBookRequest request) {
@@ -63,7 +65,9 @@ public class AdminController {
                 .toList());
     }
 
-    @Operation(summary = "문구 등록", description = "책 ID와 태그 ID 목록을 지정하여 문구를 등록합니다. GET /admin/tags 로 태그 ID 확인 후 사용.")
+    // ── 문구 등록 ─────────────────────────────────────────────────────────
+
+    @Operation(summary = "문구 등록", description = "책 ID와 태그 ID 목록을 지정하여 문구를 등록합니다.")
     @PostMapping("/phrases")
     public ResponseEntity<Void> addPhrase(@RequestBody @Valid AdminPhraseRequest request) {
         Book book = bookRepository.findById(request.bookId())
@@ -77,13 +81,14 @@ public class AdminController {
                 .build();
 
         tags.forEach(phrase::addTag);
-
         phraseRepository.save(phrase);
 
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
-    @Operation(summary = "태그 목록 조회", description = "문구 등록 시 사용할 태그 ID 확인용")
+    // ── 태그 조회 ─────────────────────────────────────────────────────────
+
+    @Operation(summary = "태그 목록 조회")
     @GetMapping("/tags")
     public ResponseEntity<List<TagResponse>> getTags() {
         return ResponseEntity.ok(tagRepository.findAllByOrderByNameAsc().stream()
@@ -91,27 +96,82 @@ public class AdminController {
                 .toList());
     }
 
+    // ── AI 파이프라인 ─────────────────────────────────────────────────────
+
     @Operation(
-            summary = "AI 파이프라인 수동 실행",
-            description = "베스트셀러를 알라딘에서 가져와 Claude AI가 문구+태그를 자동 생성합니다. " +
-                          "maxBooks 기본값 10 (최대 20). 스케줄러가 매일 오전 6시(KST)에 자동 실행하지만, " +
-                          "이 엔드포인트로 언제든 수동 실행 가능합니다.")
+            summary = "[자동화] 베스트셀러 파이프라인 수동 실행",
+            description = """
+                    전체 베스트셀러에서 신규 책을 가져와 AI가 문구+태그를 자동 생성합니다.
+                    스케줄러(매일 KST 06:00)와 동일한 로직입니다.
+                    maxBooks: 1~50 (기본 10)
+                    """)
     @PostMapping("/pipeline")
     public ResponseEntity<Map<String, Object>> runPipeline(
             @RequestParam(defaultValue = "10") int maxBooks) {
 
-        if (maxBooks < 1 || maxBooks > 20) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "maxBooks는 1~20 사이여야 합니다."));
+        if (maxBooks < 1 || maxBooks > 50) {
+            return ResponseEntity.badRequest().body(Map.of("error", "maxBooks는 1~50 사이여야 합니다."));
         }
 
-        int savedCount = contentPipelineService.runPipeline(maxBooks);
+        ContentPipelineService.PipelineResult result = contentPipelineService.runPipeline(maxBooks);
+        return ResponseEntity.ok(toResponseMap(result, null, null, maxBooks));
+    }
 
-        return ResponseEntity.ok(Map.of(
-                "message", "파이프라인 실행 완료",
-                "savedCount", savedCount,
-                "maxBooks", maxBooks
-        ));
+    @Operation(
+            summary = "[초기 수집] 카테고리별 파이프라인 수동 실행",
+            description = """
+                    초기 데이터 수집용. 특정 카테고리 + 소스 조합으로 책을 대량 수집합니다.
+                    
+                    queryType 옵션:
+                    - BESTSELLER   : 베스트셀러 (기본값)
+                    - NEW_SPECIAL  : 화제의 신간
+                    - BLOG_BEST    : 블로거 베스트 (감성 도서 비중 높음)
+                    
+                    주요 categoryId:
+                    - null  : 전체 카테고리
+                    - 1     : 소설/시/희곡
+                    - 55889 : 에세이
+                    - 336   : 자기계발
+                    - 656   : 인문학
+                    - 51    : 철학/종교
+                    - 74    : 역사
+                    - 798   : 사회과학
+                    
+                    초기 데이터 수집 권장 순서:
+                    1. BESTSELLER + null (전체 베스트셀러 30권)
+                    2. BLOG_BEST + 55889 (에세이 블로거 추천 20권)
+                    3. BESTSELLER + 1 (소설 베스트셀러 20권)
+                    4. BESTSELLER + 336 (자기계발 베스트셀러 20권)
+                    5. BESTSELLER + 656 (인문학 베스트셀러 20권)
+                    """)
+    @PostMapping("/pipeline/category")
+    public ResponseEntity<Map<String, Object>> runPipelineByCategory(
+            @RequestParam(defaultValue = "BESTSELLER") AladinApiService.QueryType queryType,
+            @RequestParam(required = false) Integer categoryId,
+            @RequestParam(defaultValue = "20") int maxBooks) {
+
+        if (maxBooks < 1 || maxBooks > 50) {
+            return ResponseEntity.badRequest().body(Map.of("error", "maxBooks는 1~50 사이여야 합니다."));
+        }
+
+        ContentPipelineService.PipelineResult result =
+                contentPipelineService.runByCategory(queryType, categoryId, maxBooks);
+        return ResponseEntity.ok(toResponseMap(result, queryType.name(), categoryId, maxBooks));
+    }
+
+    private Map<String, Object> toResponseMap(
+            ContentPipelineService.PipelineResult result,
+            String queryType, Integer categoryId, int maxBooks) {
+        return Map.of(
+                "saved",          result.saved(),
+                "duplicate",      result.duplicate(),
+                "keywordFiltered",result.keywordFiltered(),
+                "claudeFiltered", result.claudeFiltered(),
+                "total",          result.total(),
+                "queryType",      queryType != null ? queryType : "BESTSELLER",
+                "categoryId",     categoryId != null ? categoryId : "전체",
+                "maxBooks",       maxBooks
+        );
     }
 
     public record TagResponse(Long id, String name, String emoji) {}
