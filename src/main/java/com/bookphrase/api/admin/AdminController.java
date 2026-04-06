@@ -10,6 +10,7 @@ import com.bookphrase.domain.phrase.repository.PhraseRepository;
 import com.bookphrase.domain.tag.entity.Tag;
 import com.bookphrase.domain.tag.repository.TagRepository;
 import com.bookphrase.infrastructure.aladin.AladinApiService;
+import com.bookphrase.infrastructure.pipeline.ContentPipelineService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @io.swagger.v3.oas.annotations.tags.Tag(name = "Admin", description = "관리자 API - 책/문구 등록")
 @RestController
@@ -29,6 +31,7 @@ public class AdminController {
     private final BookRepository bookRepository;
     private final TagRepository tagRepository;
     private final PhraseRepository phraseRepository;
+    private final ContentPipelineService contentPipelineService;
 
     @Operation(summary = "ISBN으로 책 등록", description = "알라딘 API를 통해 책 정보를 자동으로 가져와 등록합니다. yes24Url은 선택 입력.")
     @PostMapping("/books")
@@ -86,6 +89,29 @@ public class AdminController {
         return ResponseEntity.ok(tagRepository.findAllByOrderByNameAsc().stream()
                 .map(t -> new TagResponse(t.getId(), t.getName(), t.getEmoji()))
                 .toList());
+    }
+
+    @Operation(
+            summary = "AI 파이프라인 수동 실행",
+            description = "베스트셀러를 알라딘에서 가져와 Claude AI가 문구+태그를 자동 생성합니다. " +
+                          "maxBooks 기본값 10 (최대 20). 스케줄러가 매일 오전 6시(KST)에 자동 실행하지만, " +
+                          "이 엔드포인트로 언제든 수동 실행 가능합니다.")
+    @PostMapping("/pipeline")
+    public ResponseEntity<Map<String, Object>> runPipeline(
+            @RequestParam(defaultValue = "10") int maxBooks) {
+
+        if (maxBooks < 1 || maxBooks > 20) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "maxBooks는 1~20 사이여야 합니다."));
+        }
+
+        int savedCount = contentPipelineService.runPipeline(maxBooks);
+
+        return ResponseEntity.ok(Map.of(
+                "message", "파이프라인 실행 완료",
+                "savedCount", savedCount,
+                "maxBooks", maxBooks
+        ));
     }
 
     public record TagResponse(Long id, String name, String emoji) {}
