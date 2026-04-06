@@ -3,14 +3,11 @@ package com.bookphrase.global.security;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
@@ -20,15 +17,11 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 /**
- * 퍼블릭 서비스 보안 설정
+ * 보안 설정
  *
- * - 일반 API: 인증 없이 누구나 접근 가능
- * - Admin API (/api/v1/admin/**): HTTP Basic Auth
- *   → 환경변수 admin.username / admin.password (기본: admin / admin1234)
- * - JWT, 회원가입/로그인 없음
- *
- * @Primary: CustomUserDetailsService(구버전)와의 빈 충돌 방지
- * PasswordEncoder: 구버전 UserService DI 오류 방지
+ * 일반 API  → 인증 없이 누구나 접근 가능 (퍼블릭 서비스)
+ * Admin API → HTTP Basic Auth (/api/v1/admin/**)
+ *             환경변수: admin.username / admin.password (기본: admin / admin1234)
  */
 @Configuration
 @EnableWebSecurity
@@ -55,7 +48,6 @@ public class SecurityConfig {
     }
 
     @Bean
-    @Primary
     public UserDetailsService userDetailsService() {
         var admin = User.builder()
                 .username(adminUsername)
@@ -63,11 +55,6 @@ public class SecurityConfig {
                 .roles("ADMIN")
                 .build();
         return new InMemoryUserDetailsManager(admin);
-    }
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
     }
 
     @Bean
