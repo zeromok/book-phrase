@@ -16,7 +16,7 @@ import java.util.List;
 public class AladinApiService {
 
     private static final String LOOKUP_URL = "https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx";
-    private static final String SEARCH_URL  = "https://www.aladin.co.kr/ttb/api/ItemSearch.aspx";
+    private static final String SEARCH_URL = "https://www.aladin.co.kr/ttb/api/ItemSearch.aspx";
 
     @Value("${aladin.ttb.key}")
     private String ttbKey;
@@ -47,9 +47,6 @@ public class AladinApiService {
 
         try {
             ResponseEntity<String> rawResponse = restTemplate.getForEntity(url, String.class);
-            log.info("[AladinApiService] 응답 코드: {}, Content-Type: {}",
-                    rawResponse.getStatusCode(), rawResponse.getHeaders().getContentType());
-
             String body = rawResponse.getBody();
             AladinResponse response = objectMapper.readValue(body, AladinResponse.class);
 
@@ -69,39 +66,84 @@ public class AladinApiService {
         }
     }
 
-    // ── 베스트셀러 목록 조회 (AI 파이프라인용) ────────────────────────────
+    // ── 전체 베스트셀러 조회 (스케줄러 기본 실행용) ──────────────────────
     public List<AladinBookInfo> fetchBestsellers(int maxResults) {
-        String url = SEARCH_URL
-                + "?ttbkey=" + ttbKey
-                + "&Query=bestseller"
-                + "&QueryType=Bestseller"
-                + "&MaxResults=" + maxResults
-                + "&start=1"
-                + "&SearchTarget=Book"
-                + "&output=js"
-                + "&Version=20131101"
-                + "&Cover=Big";
+        return fetchByCategory(QueryType.BESTSELLER, null, maxResults);
+    }
 
-        log.info("[AladinApiService] 베스트셀러 조회 요청 (maxResults={})", maxResults);
+    // ── 카테고리/QueryType 지정 조회 (초기 데이터 수집 + 다양한 소스용) ────
+    /**
+     * 알라딘 API에서 지정 조건으로 책 목록을 조회합니다.
+     *
+     * @param queryType  조회 유형 (BESTSELLER, NEW_SPECIAL, BLOG_BEST)
+     * @param categoryId 알라딘 카테고리 ID (null이면 전체 카테고리)
+     *                   주요 ID:
+     *                     1     = 소설/시/희곡
+     *                     55889 = 에세이
+     *                     336   = 자기계발
+     *                     656   = 인문학
+     *                     51    = 철학/종교
+     *                     74    = 역사
+     *                     798   = 사회과학
+     * @param maxResults 최대 결과 수 (1~50)
+     */
+    public List<AladinBookInfo> fetchByCategory(QueryType queryType, Integer categoryId, int maxResults) {
+        StringBuilder url = new StringBuilder(SEARCH_URL)
+                .append("?ttbkey=").append(ttbKey)
+                .append("&Query=").append(queryType.queryParam)
+                .append("&QueryType=").append(queryType.queryType)
+                .append("&MaxResults=").append(Math.min(maxResults, 50))
+                .append("&start=1")
+                .append("&SearchTarget=Book")
+                .append("&output=js")
+                .append("&Version=20131101")
+                .append("&Cover=Big");
+
+        if (categoryId != null) {
+            url.append("&CategoryId=").append(categoryId);
+        }
+
+        log.info("[AladinApiService] 카테고리 조회 - queryType={}, categoryId={}, maxResults={}",
+                queryType, categoryId, maxResults);
 
         try {
-            ResponseEntity<String> rawResponse = restTemplate.getForEntity(url, String.class);
+            ResponseEntity<String> rawResponse = restTemplate.getForEntity(url.toString(), String.class);
             String body = rawResponse.getBody();
-            log.debug("[AladinApiService] 베스트셀러 응답: {}", body);
-
             AladinResponse response = objectMapper.readValue(body, AladinResponse.class);
 
             if (response.item() == null) {
-                log.warn("[AladinApiService] 베스트셀러 결과 없음");
+                log.warn("[AladinApiService] 조회 결과 없음");
                 return List.of();
             }
 
-            log.info("[AladinApiService] 베스트셀러 {}권 조회 완료", response.item().size());
+            log.info("[AladinApiService] {}권 조회 완료", response.item().size());
             return response.item();
 
         } catch (Exception e) {
-            log.error("[AladinApiService] 베스트셀러 조회 실패: {}", e.getMessage(), e);
+            log.error("[AladinApiService] 카테고리 조회 실패: {}", e.getMessage(), e);
             return List.of();
+        }
+    }
+
+    // ── 조회 유형 ─────────────────────────────────────────────────────────
+    /**
+     * 알라딘 ItemSearch API의 QueryType 파라미터
+     *
+     * BESTSELLER   : 종합 베스트셀러 (가장 많이 팔린 책)
+     * NEW_SPECIAL  : 화제의 신간 (최신 + 화제성)
+     * BLOG_BEST    : 블로거 베스트 (블로그 리뷰 기반, 감성 도서 비중 높음)
+     */
+    public enum QueryType {
+        BESTSELLER("bestseller", "Bestseller"),
+        NEW_SPECIAL("ItemNewSpecial", "ItemNewSpecial"),
+        BLOG_BEST("BlogBest", "BlogBest");
+
+        public final String queryParam;
+        public final String queryType;
+
+        QueryType(String queryParam, String queryType) {
+            this.queryParam = queryParam;
+            this.queryType  = queryType;
         }
     }
 
@@ -115,7 +157,6 @@ public class AladinApiService {
      *   "국내도서>자기계발>성공/처세술"
      *   "국내도서>소설/시/희곡>한국소설"
      *   "국내도서>수험서/자격증>공무원 수험서"
-     *   "국내도서>유아>그림책"
      */
     public record AladinBookInfo(
             String title,
@@ -124,6 +165,6 @@ public class AladinApiService {
             String isbn13,
             String cover,
             String link,
-            String categoryName  // 카테고리 경로 (적합성 판단에 활용)
+            String categoryName
     ) {}
 }
