@@ -15,7 +15,7 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class PhraseService {
 
-    private static final int FEED_SIZE = 10;
+    private static final int FEED_SIZE = 20;
 
     private final PhraseRepository phraseRepository;
 

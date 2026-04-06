@@ -16,7 +16,7 @@ import java.util.List;
 public class AladinApiService {
 
     private static final String LOOKUP_URL = "https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx";
-    private static final String SEARCH_URL = "https://www.aladin.co.kr/ttb/api/ItemSearch.aspx";
+    private static final String LIST_URL   = "https://www.aladin.co.kr/ttb/api/ItemList.aspx";   // 베스트셀러·신간·블로거베스트 목록 API
 
     @Value("${aladin.ttb.key}")
     private String ttbKey;
@@ -33,7 +33,7 @@ public class AladinApiService {
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
-    // ── ISBN 단건 조회 (Admin 수동 등록용) ──────────────────────────────────
+    // ── ISBN 단건 조회 (Admin 수동 등록용) ───────────────────────────────
     public AladinBookInfo fetchByIsbn(String isbn) {
         String url = LOOKUP_URL
                 + "?ttbkey=" + ttbKey
@@ -66,14 +66,15 @@ public class AladinApiService {
         }
     }
 
-    // ── 전체 베스트셀러 조회 (스케줄러 기본 실행용) ──────────────────────
+    // ── 전체 베스트셀러 조회 (스케줄러 기본 실행용) ──────────────────
     public List<AladinBookInfo> fetchBestsellers(int maxResults) {
         return fetchByCategory(QueryType.BESTSELLER, null, maxResults);
     }
 
     // ── 카테고리/QueryType 지정 조회 (초기 데이터 수집 + 다양한 소스용) ────
     /**
-     * 알라딘 API에서 지정 조건으로 책 목록을 조회합니다.
+     * 알라딘 ItemList API에서 지정 조건으로 책 목록을 조회합니다.
+     * (ItemSearch API와 다름 — ItemList는 목록 조회 전용 엔드포인트)
      *
      * @param queryType  조회 유형 (BESTSELLER, NEW_SPECIAL, BLOG_BEST)
      * @param categoryId 알라딘 카테고리 ID (null이면 전체 카테고리)
@@ -88,9 +89,8 @@ public class AladinApiService {
      * @param maxResults 최대 결과 수 (1~50)
      */
     public List<AladinBookInfo> fetchByCategory(QueryType queryType, Integer categoryId, int maxResults) {
-        StringBuilder url = new StringBuilder(SEARCH_URL)
+        StringBuilder url = new StringBuilder(LIST_URL)
                 .append("?ttbkey=").append(ttbKey)
-                .append("&Query=").append(queryType.queryParam)
                 .append("&QueryType=").append(queryType.queryType)
                 .append("&MaxResults=").append(Math.min(maxResults, 50))
                 .append("&start=1")
@@ -103,7 +103,7 @@ public class AladinApiService {
             url.append("&CategoryId=").append(categoryId);
         }
 
-        log.info("[AladinApiService] 카테고리 조회 - queryType={}, categoryId={}, maxResults={}",
+        log.info("[AladinApiService] 목록 조회 - queryType={}, categoryId={}, maxResults={}",
                 queryType, categoryId, maxResults);
 
         try {
@@ -120,34 +120,32 @@ public class AladinApiService {
             return response.item();
 
         } catch (Exception e) {
-            log.error("[AladinApiService] 카테고리 조회 실패: {}", e.getMessage(), e);
+            log.error("[AladinApiService] 목록 조회 실패: {}", e.getMessage(), e);
             return List.of();
         }
     }
 
-    // ── 조회 유형 ─────────────────────────────────────────────────────────
+    // ── 조회 유형 ─────────────────────────────────────────────────
     /**
-     * 알라딘 ItemSearch API의 QueryType 파라미터
+     * 알라딘 ItemList API의 QueryType 파라미터
      *
      * BESTSELLER   : 종합 베스트셀러 (가장 많이 팔린 책)
      * NEW_SPECIAL  : 화제의 신간 (최신 + 화제성)
      * BLOG_BEST    : 블로거 베스트 (블로그 리뷰 기반, 감성 도서 비중 높음)
      */
     public enum QueryType {
-        BESTSELLER("bestseller", "Bestseller"),
-        NEW_SPECIAL("ItemNewSpecial", "ItemNewSpecial"),
-        BLOG_BEST("BlogBest", "BlogBest");
+        BESTSELLER("Bestseller"),
+        NEW_SPECIAL("ItemNewSpecial"),
+        BLOG_BEST("BlogBest");
 
-        public final String queryParam;
         public final String queryType;
 
-        QueryType(String queryParam, String queryType) {
-            this.queryParam = queryParam;
-            this.queryType  = queryType;
+        QueryType(String queryType) {
+            this.queryType = queryType;
         }
     }
 
-    // ── DTO ──────────────────────────────────────────────────────────────
+    // ── DTO ──────────────────────────────────────────────────────
     public record AladinResponse(List<AladinBookInfo> item) {}
 
     /**
