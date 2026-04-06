@@ -15,7 +15,8 @@ import java.util.List;
 @Service
 public class AladinApiService {
 
-    private static final String BASE_URL = "https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx";
+    private static final String LOOKUP_URL = "https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx";
+    private static final String SEARCH_URL  = "https://www.aladin.co.kr/ttb/api/ItemSearch.aspx";
 
     @Value("${aladin.ttb.key}")
     private String ttbKey;
@@ -32,8 +33,9 @@ public class AladinApiService {
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
+    // ── ISBN 단건 조회 (Admin 수동 등록용) ──────────────────────────────────
     public AladinBookInfo fetchByIsbn(String isbn) {
-        String url = BASE_URL
+        String url = LOOKUP_URL
                 + "?ttbkey=" + ttbKey
                 + "&itemIdType=ISBN13"
                 + "&ItemId=" + isbn
@@ -49,8 +51,6 @@ public class AladinApiService {
                     rawResponse.getStatusCode(), rawResponse.getHeaders().getContentType());
 
             String body = rawResponse.getBody();
-            log.info("[AladinApiService] 응답 body: {}", body);
-
             AladinResponse response = objectMapper.readValue(body, AladinResponse.class);
 
             if (response.item() == null || response.item().isEmpty()) {
@@ -69,6 +69,43 @@ public class AladinApiService {
         }
     }
 
+    // ── 베스트셀러 목록 조회 (AI 파이프라인용) ────────────────────────────
+    public List<AladinBookInfo> fetchBestsellers(int maxResults) {
+        String url = SEARCH_URL
+                + "?ttbkey=" + ttbKey
+                + "&Query=bestseller"
+                + "&QueryType=Bestseller"
+                + "&MaxResults=" + maxResults
+                + "&start=1"
+                + "&SearchTarget=Book"
+                + "&output=js"
+                + "&Version=20131101"
+                + "&Cover=Big";
+
+        log.info("[AladinApiService] 베스트셀러 조회 요청 (maxResults={})", maxResults);
+
+        try {
+            ResponseEntity<String> rawResponse = restTemplate.getForEntity(url, String.class);
+            String body = rawResponse.getBody();
+            log.debug("[AladinApiService] 베스트셀러 응답: {}", body);
+
+            AladinResponse response = objectMapper.readValue(body, AladinResponse.class);
+
+            if (response.item() == null) {
+                log.warn("[AladinApiService] 베스트셀러 결과 없음");
+                return List.of();
+            }
+
+            log.info("[AladinApiService] 베스트셀러 {}권 조회 완료", response.item().size());
+            return response.item();
+
+        } catch (Exception e) {
+            log.error("[AladinApiService] 베스트셀러 조회 실패: {}", e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    // ── DTO ──────────────────────────────────────────────────────────────
     public record AladinResponse(List<AladinBookInfo> item) {}
 
     public record AladinBookInfo(
