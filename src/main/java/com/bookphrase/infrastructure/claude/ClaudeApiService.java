@@ -65,7 +65,8 @@ public class ClaudeApiService {
      * @return ClaudeResult (suitable=false면 phrase/tags는 null)
      */
     public ClaudeResult evaluateAndGenerate(
-            String title, String author, String categoryName, List<String> availableTags) {
+            String title, String author, String categoryName,
+            String pubDate, int salesPoint, List<String> availableTags) {
 
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("ANTHROPIC_API_KEY가 설정되지 않았습니다.");
@@ -76,7 +77,7 @@ public class ClaudeApiService {
         headers.set("x-api-key", apiKey);
         headers.set("anthropic-version", ANTHROPIC_VERSION);
 
-        String prompt = buildPrompt(title, author, categoryName, availableTags);
+        String prompt = buildPrompt(title, author, categoryName, pubDate, salesPoint, availableTags);
 
         Map<String, Object> requestBody = Map.of(
                 "model", MODEL,
@@ -155,46 +156,58 @@ public class ClaudeApiService {
     }
 
     private String buildPrompt(
-            String title, String author, String categoryName, List<String> availableTags) {
+            String title, String author, String categoryName,
+            String pubDate, int salesPoint, List<String> availableTags) {
 
         String category = (categoryName != null && !categoryName.isBlank())
                 ? categoryName : "알 수 없음";
+        String pubInfo = (pubDate != null && !pubDate.isBlank())
+                ? pubDate : "알 수 없음";
 
         return String.format("""
-                당신은 감성적인 도서 큐레이션 서비스의 콘텐츠 편집자입니다.
-                이 서비스는 "문구로 책을 발견하는" 감성 큐레이션으로, \
-                독자의 현재 감정·상황과 공명하는 책을 추천합니다.
-                
-                아래 책이 이 서비스에 적합한지 먼저 판단하고,
+                당신은 "O:GU(오늘의 구절)" 서비스의 콘텐츠 편집자입니다.
+                O:GU는 20~30대가 주 타겟인 감성 도서 큐레이션 서비스로, \
+                짧은 문구 한 줄로 책에 대한 호기심을 자극하고, \
+                독자의 현재 감정·상황과 공명하는 책을 발견하게 합니다.
+
+                아래 책이 O:GU에 적합한지 판단하고, \
                 적합하다면 감성적인 한국어 문구와 태그를 생성해주세요.
-                
+
                 ─ 책 정보 ─
                 제목: %s
                 저자: %s
                 카테고리: %s
-                
-                ─ 부적합한 책의 예시 ─
-                수험서, 문제집, 자격증 교재, 공무원 시험, 공인중개사
-                유아/어린이 그림책, 학습만화
-                요리 레시피북, 여행 가이드북, 지도책
-                전문 기술서 (프로그래밍, 의학, 법률, 회계 등)
-                
-                ─ 적합한 책의 예시 ─
-                에세이, 자기계발, 소설, 인문학, 철학, 심리학, 사회학
-                독자에게 감동·위로·자극·성찰을 줄 수 있는 책
-                
+                출판일: %s
+                판매지수: %d
+
+                ─ O:GU 감성에 맞는 책 ─
+                • 에세이, 소설, 시, 인문학, 철학, 심리학, 자기계발
+                • 읽고 나면 여운이 남거나, 삶을 돌아보게 하는 책
+                • 20~30대가 공감할 수 있는 주제: 관계, 성장, 불안, 위로, 일상, 사랑
+                • 스테디셀러(오래되었지만 지금도 읽히는 명작)는 적합
+
+                ─ O:GU 감성에 맞지 않는 책 ─
+                • 수험서, 문제집, 자격증 교재, 학습서
+                • 유아/어린이 도서, 학습만화
+                • 요리 레시피, 여행 가이드, 지도, 실용서
+                • 전문 기술서 (프로그래밍, 의학, 법률, 회계)
+                • 특정 직업군/업계 대상 실무서
+                • 시의성이 지난 트렌드서 (예: "2020년 경제 전망")
+                • 감성적 공감보다 정보 전달이 목적인 책
+
                 ─ 사용 가능한 태그 ─
                 %s
-                
+
                 반드시 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
-                
+
                 적합한 경우:
                 {"suitable": true, "phrase": "20~50자의 감성적인 한국어 문구", "tags": ["태그1", "태그2"]}
-                
+
                 부적합한 경우:
                 {"suitable": false, "reason": "부적합 사유를 한 문장으로"}
                 """,
-                title, author, category, String.join(", ", availableTags));
+                title, author, category, pubInfo, salesPoint,
+                String.join(", ", availableTags));
     }
 
     /**

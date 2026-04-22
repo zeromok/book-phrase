@@ -130,18 +130,20 @@ public class ContentPipelineService {
             return BookResult.DUPLICATE;
         }
 
-        // 1차 키워드 필터 (Claude 호출 없이 즉시 판단)
-        if (!suitabilityFilter.isSuitable(bookInfo.title())) {
+        // 1차 필터 (키워드 + 카테고리 + 오래됨&비인기 복합)
+        if (!suitabilityFilter.isSuitable(bookInfo)) {
             return BookResult.KEYWORD_FILTER;
         }
 
         // 2차 Claude 필터 + 문구/태그 생성
-        log.info("[ContentPipeline] Claude 평가: [{}] | 카테고리: {}", bookInfo.title(), bookInfo.categoryName());
+        log.info("[ContentPipeline] Claude 평가: [{}] | 카테고리: {} | 출판: {} | 판매지수: {}",
+                bookInfo.title(), bookInfo.categoryName(), bookInfo.pubDate(), bookInfo.salesPoint());
         Thread.sleep(1_000); // API Rate limit 방지
 
         claudeCalls.incrementAndGet();
         ClaudeApiService.ClaudeResult claudeResult = claudeApiService.evaluateAndGenerate(
-                bookInfo.title(), bookInfo.author(), bookInfo.categoryName(), tagNames);
+                bookInfo.title(), bookInfo.author(), bookInfo.categoryName(),
+                bookInfo.pubDate(), bookInfo.salesPoint(), tagNames);
 
         if (claudeResult.isRejected()) {
             log.info("[ContentPipeline] ❌ Claude 부적합: [{}] - {}", bookInfo.title(), claudeResult.reason());

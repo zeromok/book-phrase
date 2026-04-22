@@ -163,6 +163,8 @@ public class AladinApiService {
             String isbn13,
             String cover,
             String link,
-            String categoryName
+            String categoryName,
+            String pubDate,
+            int salesPoint
     ) {}
 }
