@@ -9,20 +9,31 @@ import java.util.List;
 
 public interface PhraseRepository extends JpaRepository<Phrase, Long> {
 
-    // 특정 태그 기반 피드 (랜덤)
+    // seed 기반 랜덤 정렬 + 태그 필터 + 페이지네이션
     @Query(value = """
             SELECT DISTINCT p.* FROM phrases p
             JOIN phrase_tags pt ON p.id = pt.phrase_id
             WHERE pt.tag_id IN (:tagIds)
-            ORDER BY RAND()
-            LIMIT :limit
+            ORDER BY RAND(:seed)
+            LIMIT :limit OFFSET :offset
             """, nativeQuery = true)
-    List<Phrase> findFeedByTagsAll(
+    List<Phrase> findFeedByTag(
             @Param("tagIds") List<Long> tagIds,
+            @Param("seed") long seed,
+            @Param("offset") int offset,
             @Param("limit") int limit
     );
 
-    // 전체 태그 피드 (랜덤, 비로그인/태그선택 없을 때)
-    @Query(value = "SELECT p.* FROM phrases p ORDER BY RAND() LIMIT :limit", nativeQuery = true)
-    List<Phrase> findFeedAll(@Param("limit") int limit);
+    // seed 기반 랜덤 정렬 + 전체 + 페이지네이션
+    @Query(value = """
+            SELECT p.* FROM phrases p
+            ORDER BY RAND(:seed)
+            LIMIT :limit OFFSET :offset
+            """, nativeQuery = true)
+    List<Phrase> findFeedAll(
+            @Param("seed") long seed,
+            @Param("offset") int offset,
+            @Param("limit") int limit
+    );
+
 }
