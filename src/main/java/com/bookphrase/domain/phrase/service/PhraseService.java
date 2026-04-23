@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
@@ -43,6 +45,16 @@ public class PhraseService {
                 .toList();
 
         return new PhraseFeedResponse(items, hasNext);
+    }
+
+    // 오늘의 구절: KST 날짜 기반으로 매일 1개 선정
+    public PhraseRevealResponse getDaily() {
+        long dateSeed = LocalDate.now(ZoneId.of("Asia/Seoul")).toEpochDay();
+        Phrase phrase = phraseRepository.findDaily(dateSeed);
+        if (phrase == null) {
+            throw new IllegalStateException("등록된 문구가 없습니다.");
+        }
+        return PhraseRevealResponse.from(phrase);
     }
 
     // 카드 탭 → 책 정보 공개 (reveal)

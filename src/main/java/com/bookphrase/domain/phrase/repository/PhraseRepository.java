@@ -36,4 +36,7 @@ public interface PhraseRepository extends JpaRepository<Phrase, Long> {
             @Param("limit") int limit
     );
 
+    // 오늘의 구절: 날짜 seed 기반으로 매일 1개 선정 (모든 사용자 동일)
+    @Query(value = "SELECT p.* FROM phrases p ORDER BY RAND(:dateSeed) LIMIT 1", nativeQuery = true)
+    Phrase findDaily(@Param("dateSeed") long dateSeed);
 }

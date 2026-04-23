@@ -27,6 +27,12 @@ public class PhraseController {
         return ResponseEntity.ok(phraseService.getFeed(tagId, seed, page, size));
     }
 
+    @Operation(summary = "오늘의 구절", description = "KST 날짜 기반으로 매일 1개 문구 + 책 정보를 반환. 모든 사용자에게 같은 문구가 노출된다.")
+    @GetMapping("/daily")
+    public ResponseEntity<PhraseRevealResponse> getDaily() {
+        return ResponseEntity.ok(phraseService.getDaily());
+    }
+
     @Operation(summary = "카드 탭 → 책 공개 (Reveal)", description = "카드 탭 시 책 정보를 서버에서 응답.")
     @GetMapping("/{id}/reveal")
     public ResponseEntity<PhraseRevealResponse> reveal(@PathVariable Long id) {
