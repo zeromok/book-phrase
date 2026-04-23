@@ -32,16 +32,30 @@ public class DataInitializer implements ApplicationRunner {
     }
 
     private void ensureTagsExist() {
-        if (tagRepository.count() > 0) {
-            log.info("[DataInitializer] 태그 이미 존재. 스킵.");
-            return;
+        // 전체 태그 목록 — 없는 것만 추가
+        var tags = java.util.List.of(
+                new String[]{"위로받고싶다", "🤗"},
+                new String[]{"자극받고싶다", "🔥"},
+                new String[]{"쉬고싶다", "😴"},
+                new String[]{"성장하고싶다", "🌱"},
+                new String[]{"사랑하고싶다", "💕"},
+                new String[]{"용기내고싶다", "💪"},
+                new String[]{"몰입하고싶다", "📖"},
+                new String[]{"생각하고싶다", "💭"}
+        );
+
+        int created = 0;
+        for (String[] tag : tags) {
+            if (!tagRepository.existsByName(tag[0])) {
+                tagRepository.save(Tag.builder().name(tag[0]).emoji(tag[1]).build());
+                created++;
+            }
         }
 
-        tagRepository.save(Tag.builder().name("위로받고싶다").emoji("🤗").build());
-        tagRepository.save(Tag.builder().name("자극받고싶다").emoji("🔥").build());
-        tagRepository.save(Tag.builder().name("쉬고싶다").emoji("😴").build());
-        tagRepository.save(Tag.builder().name("성장하고싶다").emoji("🌱").build());
-
-        log.info("[DataInitializer] 태그 4종 생성 완료");
+        if (created > 0) {
+            log.info("[DataInitializer] 태그 {}개 신규 생성", created);
+        } else {
+            log.info("[DataInitializer] 태그 변경 없음 ({}개 존재)", tags.size());
+        }
     }
 }

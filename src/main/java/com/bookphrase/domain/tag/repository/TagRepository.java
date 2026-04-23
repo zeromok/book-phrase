@@ -10,4 +10,6 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
     List<Tag> findAllByOrderByNameAsc();
 
     List<Tag> findByNameIn(List<String> names);
+
+    boolean existsByName(String name);
 }
