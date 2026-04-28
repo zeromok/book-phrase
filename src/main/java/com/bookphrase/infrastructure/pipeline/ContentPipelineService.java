@@ -84,7 +84,7 @@ public class ContentPipelineService {
 
         for (AladinApiService.AladinBookInfo bookInfo : books) {
             try {
-                switch (processBook(bookInfo, allTags, tagNames, claudeCalls)) {
+                switch (processBook(bookInfo, allTags, claudeCalls)) {
                     case SAVED          -> saved++;
                     case DUPLICATE      -> duplicate++;
                     case KEYWORD_FILTER -> keywordFiltered++;
@@ -115,7 +115,6 @@ public class ContentPipelineService {
     private BookResult processBook(
             AladinApiService.AladinBookInfo bookInfo,
             List<Tag> allTags,
-            List<String> tagNames,
             AtomicInteger claudeCalls) throws InterruptedException {
 
         // ISBN 없음
@@ -143,7 +142,7 @@ public class ContentPipelineService {
         claudeCalls.incrementAndGet();
         ClaudeApiService.ClaudeResult claudeResult = claudeApiService.evaluateAndGenerate(
                 bookInfo.title(), bookInfo.author(), bookInfo.categoryName(),
-                bookInfo.pubDate(), bookInfo.salesPoint(), tagNames);
+                bookInfo.pubDate(), bookInfo.salesPoint());
 
         if (claudeResult.isRejected()) {
             log.info("[ContentPipeline] ❌ Claude 부적합: [{}] - {}", bookInfo.title(), claudeResult.reason());

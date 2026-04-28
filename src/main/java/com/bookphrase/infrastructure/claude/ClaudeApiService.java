@@ -61,12 +61,11 @@ public class ClaudeApiService {
      * @param title         책 제목
      * @param author        저자
      * @param categoryName  알라딘 카테고리 경로 (예: "국내도서>자기계발>성공/처세술")
-     * @param availableTags DB에 존재하는 태그 이름 목록
      * @return ClaudeResult (suitable=false면 phrase/tags는 null)
      */
     public ClaudeResult evaluateAndGenerate(
             String title, String author, String categoryName,
-            String pubDate, int salesPoint, List<String> availableTags) {
+            String pubDate, int salesPoint) {
 
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("ANTHROPIC_API_KEY가 설정되지 않았습니다.");
@@ -77,7 +76,7 @@ public class ClaudeApiService {
         headers.set("x-api-key", apiKey);
         headers.set("anthropic-version", ANTHROPIC_VERSION);
 
-        String prompt = buildPrompt(title, author, categoryName, pubDate, salesPoint, availableTags);
+        String prompt = buildPrompt(title, author, categoryName, pubDate, salesPoint);
 
         Map<String, Object> requestBody = Map.of(
                 "model", MODEL,
@@ -157,7 +156,7 @@ public class ClaudeApiService {
 
     private String buildPrompt(
             String title, String author, String categoryName,
-            String pubDate, int salesPoint, List<String> availableTags) {
+            String pubDate, int salesPoint) {
 
         String category = (categoryName != null && !categoryName.isBlank())
                 ? categoryName : "알 수 없음";
@@ -195,19 +194,56 @@ public class ClaudeApiService {
                 • 시의성이 지난 트렌드서 (예: "2020년 경제 전망")
                 • 감성적 공감보다 정보 전달이 목적인 책
 
-                ─ 사용 가능한 태그 ─
-                %s
+                ─ 사용 가능한 태그 (독자 감정 상태 기준) ─
+                각 태그는 *그 감정 상태의 독자가 찾을 만한 책*에 부여하세요.
+                책 내용에 단어가 등장한다고 해서 부여하면 안 됩니다.
+
+                • 위로받고싶다 🤗 — 지치고 상처받은 마음에 공감받고 싶은 독자
+                  ✓ 위로 에세이, 따뜻한 문학, 공감 심리
+                  ✗ 동기부여·생산성 책 (위로가 아니라 채찍질)
+
+                • 자극받고싶다 🔥 — 동기부여·도전·돌파가 필요한 독자
+                  ✓ 자기계발, 성공 에세이, 도전기
+                  ✗ 잔잔한 일상 에세이
+
+                • 쉬고싶다 😴 — 번잡한 일상에서 벗어나 고요함·여유를 찾는 독자
+                  ✓ 잔잔한 에세이, 자연/계절/여행, 시, 일상의 여유
+                  ✗ 자기계발·생산성·효율·마케팅 책 (쉬라는 말이 나와도 톤이 다름)
+
+                • 성장하고싶다 🌱 — 더 나은 자신으로 발전하고 싶은 독자
+                  ✓ 자기성찰 에세이, 인문학, 가치관·태도에 대한 책
+                  ✗ 단순 성공·재테크 책
+
+                • 사랑하고싶다 💕 — 관계와 사랑에 대해 깊이 느끼고 싶은 독자
+                  ✓ 연애 에세이, 로맨스 소설, 관계 심리
+                  ✗ "자기 자신을 사랑하라"류의 자기계발
+
+                • 용기내고싶다 💪 — 두려움을 이기고 한 걸음 내딛고 싶은 독자
+                  ✓ 변화·도전 에세이, 회복·재출발 이야기
+                  ✗ 단순 성공담
+
+                • 몰입하고싶다 📖 — 깊이 빠져들 이야기가 필요한 독자
+                  ✓ 흡입력 있는 소설, 장르문학, 서사가 강한 책
+                  ✗ 정보 전달성 에세이
+
+                • 생각하고싶다 💭 — 깊이 사유하고 통찰을 얻고 싶은 독자
+                  ✓ 철학, 인문학, 사회비평, 사유적 에세이
+                  ✗ 실용적 자기계발
+
+                ─ 태그 부여 규칙 ─
+                1. 책의 *전체 톤과 결*을 보고 1~2개만 선택. 억지로 2개 채우지 말 것.
+                2. 책 카테고리(%s)를 우선 참고. 예: 자기계발 책에 "쉬고싶다"는 거의 ❌.
+                3. 문구에 단어가 나온다고 그 태그를 다는 게 아니라, *그 감정의 독자가 이 책을 펴서 만족할까*를 기준으로.
 
                 반드시 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 
                 적합한 경우:
-                {"suitable": true, "phrase": "20~50자의 감성적인 한국어 문구", "tags": ["태그1", "태그2"]}
+                {"suitable": true, "phrase": "20~50자의 감성적인 한국어 문구", "tags": ["태그1"] 또는 ["태그1","태그2"]}
 
                 부적합한 경우:
                 {"suitable": false, "reason": "부적합 사유를 한 문장으로"}
                 """,
-                title, author, category, pubInfo, salesPoint,
-                String.join(", ", availableTags));
+                title, author, category, pubInfo, salesPoint, category);
     }
 
     /**
