@@ -247,6 +247,118 @@ public class ClaudeApiService {
     }
 
     /**
+     * 기존 phrase에 새 프롬프트로 태그만 다시 부여합니다 (재태깅 전용).
+     * phrase 텍스트는 변경하지 않습니다.
+     *
+     * @return 부여된 태그 이름 1~2개
+     */
+    public List<String> retagPhrase(
+            String title, String author, String categoryName, String phraseText) {
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("ANTHROPIC_API_KEY가 설정되지 않았습니다.");
+        }
+
+        String category = (categoryName != null && !categoryName.isBlank())
+                ? categoryName : "알 수 없음";
+        String prompt = buildRetagPrompt(title, author, category, phraseText);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-api-key", apiKey);
+        headers.set("anthropic-version", ANTHROPIC_VERSION);
+
+        Map<String, Object> requestBody = Map.of(
+                "model", MODEL,
+                "max_tokens", 100,
+                "messages", List.of(Map.of("role", "user", "content", prompt))
+        );
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
+
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                ResponseEntity<String> response = restTemplate.postForEntity(CLAUDE_API_URL, request, String.class);
+                JsonNode root = objectMapper.readTree(response.getBody());
+                String text = root.path("content").get(0).path("text").asText().trim();
+                String json = extractJson(text);
+
+                JsonNode parsed = objectMapper.readTree(json);
+                JsonNode tagsNode = parsed.path("tags");
+                if (!tagsNode.isArray()) {
+                    throw new RuntimeException("재태깅 응답에 tags 배열이 없음: " + text);
+                }
+
+                java.util.List<String> tagNames = new java.util.ArrayList<>();
+                tagsNode.forEach(n -> tagNames.add(n.asText()));
+                log.info("[ClaudeApiService] 재태깅 - [{}] → {}", title, tagNames);
+                return tagNames;
+
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429 && attempt < MAX_RETRIES - 1) {
+                    long delay = RETRY_DELAYS_MS[attempt];
+                    log.warn("[ClaudeApiService] 재태깅 429 - {}ms 후 재시도 [{}]", delay, title);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("재태깅 중 인터럽트", ie);
+                    }
+                } else {
+                    throw new RuntimeException("재태깅 HTTP 오류 " + e.getStatusCode().value(), e);
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("재태깅 실패: " + e.getMessage(), e);
+            }
+        }
+
+        throw new RuntimeException("재태깅 429 최대 재시도 초과 [" + title + "]");
+    }
+
+    private String buildRetagPrompt(String title, String author, String category, String phraseText) {
+        return String.format("""
+                당신은 "O:GU(오늘의 구절)" 서비스의 콘텐츠 편집자입니다.
+                아래 책에서 발췌한 문구에 가장 어울리는 감정 태그 1~2개를 골라주세요.
+
+                ─ 책 정보 ─
+                제목: %s
+                저자: %s
+                카테고리: %s
+
+                ─ 문구 ─
+                "%s"
+
+                ─ 사용 가능한 태그 (독자 감정 상태 기준) ─
+                각 태그는 *그 감정 상태의 독자가 찾을 만한 책*에 부여하세요.
+
+                • 위로받고싶다 🤗 — 지치고 상처받은 마음에 공감받고 싶은 독자
+                  ✓ 위로 에세이, 따뜻한 문학, 공감 심리   ✗ 동기부여·생산성 책
+                • 자극받고싶다 🔥 — 동기부여·도전·돌파가 필요한 독자
+                  ✓ 자기계발, 성공 에세이, 도전기   ✗ 잔잔한 일상 에세이
+                • 쉬고싶다 😴 — 번잡한 일상에서 벗어나 고요함을 찾는 독자
+                  ✓ 잔잔한 에세이, 자연/계절/여행, 시   ✗ 자기계발·생산성·마케팅 책
+                • 성장하고싶다 🌱 — 더 나은 자신으로 발전하고 싶은 독자
+                  ✓ 자기성찰, 인문학, 가치관·태도   ✗ 단순 성공·재테크 책
+                • 사랑하고싶다 💕 — 관계와 사랑에 깊이 공감하고 싶은 독자
+                  ✓ 연애 에세이, 로맨스 소설, 관계 심리   ✗ "자기 사랑" 자기계발
+                • 용기내고싶다 💪 — 두려움을 이기고 한 걸음 내딛고 싶은 독자
+                  ✓ 변화·도전 에세이, 회복·재출발   ✗ 단순 성공담
+                • 몰입하고싶다 📖 — 깊이 빠져들 이야기가 필요한 독자
+                  ✓ 흡입력 있는 소설, 장르문학, 서사   ✗ 정보 전달성 에세이
+                • 생각하고싶다 💭 — 깊이 사유하고 통찰을 얻고 싶은 독자
+                  ✓ 철학, 인문학, 사회비평, 사유적 에세이   ✗ 실용적 자기계발
+
+                ─ 부여 규칙 ─
+                1. 책의 *전체 톤과 결*을 보고 1~2개만. 억지로 2개 채우지 말 것.
+                2. 책 카테고리(%s) 우선. 자기계발 책에 "쉬고싶다"는 거의 ❌.
+                3. 단어 등장 ≠ 태그 부여. *그 감정의 독자가 만족할까*가 기준.
+
+                JSON 형식으로만 응답:
+                {"tags": ["태그1"]} 또는 {"tags": ["태그1","태그2"]}
+                """,
+                title, author, category, phraseText, category);
+    }
+
+    /**
      * Claude API 응답 결과
      *
      * suitable=true  → phrase, tags 에 값이 있음

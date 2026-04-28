@@ -11,6 +11,7 @@ import com.bookphrase.domain.tag.entity.Tag;
 import com.bookphrase.domain.tag.repository.TagRepository;
 import com.bookphrase.infrastructure.aladin.AladinApiService;
 import com.bookphrase.infrastructure.pipeline.ContentPipelineService;
+import com.bookphrase.infrastructure.pipeline.PhraseRetagService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class AdminController {
     private final TagRepository tagRepository;
     private final PhraseRepository phraseRepository;
     private final ContentPipelineService contentPipelineService;
+    private final PhraseRetagService phraseRetagService;
 
     // ── 책 등록 ──────────────────────────────────────────────────────────
 
@@ -176,4 +178,22 @@ public class AdminController {
     }
 
     public record TagResponse(Long id, String name, String emoji) {}
+
+    // ── 재태깅 (일회성 운영 작업) ─────────────────────────────────────────────
+
+    @Operation(
+            summary = "[일회성] 모든 phrase 재태깅",
+            description = """
+                    모든 phrase의 태그를 새 프롬프트로 다시 부여합니다.
+                    phrase 텍스트와 책 정보는 변경되지 않습니다.
+                    Aladin에서 카테고리를 가져와 재태깅 정확도를 높입니다.
+
+                    소요 시간: phrase 1건당 약 2초 (Aladin + Claude + 1초 sleep)
+                    예상 비용: phrase 100건당 약 $0.05 (Claude Haiku)
+                    """)
+    @PostMapping("/retag-all")
+    public ResponseEntity<Map<String, Object>> retagAll() {
+        PhraseRetagService.RetagResult result = phraseRetagService.retagAll();
+        return ResponseEntity.ok(result.toMap());
+    }
 }

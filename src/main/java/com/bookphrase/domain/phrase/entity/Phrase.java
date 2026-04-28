@@ -53,4 +53,8 @@ public class Phrase {
     public void addTag(Tag tag) {
         this.tags.add(tag);
     }
+
+    public void clearTags() {
+        this.tags.clear();
+    }
 }
