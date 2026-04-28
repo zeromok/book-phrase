@@ -69,23 +69,41 @@ public class PhraseRetagService {
         Book book = phrase.getBook();
         String category = fetchCategorySafely(book.getIsbn());
 
-        List<String> newTagNames = claudeApiService.retagPhrase(
+        List<String> rawTagNames = claudeApiService.retagPhrase(
                 book.getTitle(), book.getAuthor(), category, phrase.getText());
 
-        if (newTagNames == null || newTagNames.isEmpty()) {
+        if (rawTagNames == null || rawTagNames.isEmpty()) {
             log.warn("[Retag] 태그 0개 반환 — 스킵 [{}]", book.getTitle());
             return RetagOutcome.SKIPPED;
         }
 
-        List<Tag> tags = tagRepository.findByNameIn(newTagNames);
+        // Claude가 이모지·공백·따옴표를 포함해서 반환할 수 있어 정규화
+        List<String> normalizedNames = rawTagNames.stream()
+                .map(this::normalizeTagName)
+                .filter(s -> !s.isBlank())
+                .toList();
+
+        List<Tag> tags = tagRepository.findByNameIn(normalizedNames);
         if (tags.isEmpty()) {
-            log.warn("[Retag] 매칭되는 태그 없음 — 스킵 [{}] (응답: {})", book.getTitle(), newTagNames);
+            log.warn("[Retag] 매칭되는 태그 없음 — 스킵 [{}] | 원본: {} | 정규화: {}",
+                    book.getTitle(), rawTagNames, normalizedNames);
             return RetagOutcome.SKIPPED;
         }
 
         phrase.clearTags();
         tags.forEach(phrase::addTag);
+        log.info("[Retag] ✅ [{}] 태그: {}", book.getTitle(),
+                tags.stream().map(Tag::getName).toList());
         return RetagOutcome.UPDATED;
+    }
+
+    /**
+     * Claude 응답의 태그 이름을 DB 매칭용으로 정규화합니다.
+     * 한글·영문·숫자만 남기고 이모지·공백·따옴표 등은 제거.
+     */
+    private String normalizeTagName(String raw) {
+        if (raw == null) return "";
+        return raw.replaceAll("[^가-힣ㄱ-ㅎㅏ-ㅣa-zA-Z0-9]", "").trim();
     }
 
     private String fetchCategorySafely(String isbn) {
